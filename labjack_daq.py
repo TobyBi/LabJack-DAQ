@@ -87,10 +87,8 @@ class LabJackDaq:
             except:
                 pass
 
-            self.close()
             return False
 
-        self.close()
         return exc_type is None
 
     # def open(self, device_type="ANY", connection_type="ANY", identifier="ANY"):
