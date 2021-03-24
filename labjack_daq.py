@@ -511,7 +511,7 @@ class Intervaler:
         return resp_list
 
     def start_interval(
-        self, operations_inside: function, operations_outside: function=None,
+        self, operations_inside, operations_outside=None,
         **operation_kwargs) -> dict:
         """Start a timed interval with operations inside and outside an interval.
 
