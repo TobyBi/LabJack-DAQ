@@ -1,3 +1,7 @@
+"""
+.. include:: ./README.md
+"""
+
 import numpy as np
 import time
 from random import randint
