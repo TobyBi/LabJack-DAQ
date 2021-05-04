@@ -22,7 +22,7 @@ To install simply clone the git directory using the following commands:
 git clone https://github.com/TobyBi/LabJack-DAQ
 ```
 
-Move `tdaq.py` to your own directory and import it to use.
+Move the file `tdaq` to your own directory and import it to use.
 
 
 
