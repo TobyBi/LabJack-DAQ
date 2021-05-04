@@ -73,35 +73,6 @@ class LabJackDaq:
             )
         # TODO: error handling
 
-    def __enter__(self):
-        self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is KeyboardInterrupt:
-            # disable and stop stream-out
-            try:
-                self.stream_out.disable_stream_out()
-                self.stream_out.stop_stream()
-            except NameError:
-                pass
-
-            # clean interval
-            try:
-                ljm.cleanInterval(self.interval._interval_handle)
-            except:
-                pass
-
-            return False
-
-        return exc_type is None
-
-    # def open(self, device_type="ANY", connection_type="ANY", identifier="ANY"):
-    #     self.handle = ljm.openS(device_type, connection_type, identifier)
-    #     print("Device type: {0}, connection type: {1}, ID: {2}, IP: {3}, port: {4}, Max {5} MB per packet".format(
-    #         *ljm.getHandleInfo(self.handle)))
-    #     self._open = True
-    #     # error handling
-
     @classmethod
     def experiment(cls, exp_name: str):
         """Init a LabJack object and other components based on experiment name."""
@@ -545,53 +516,55 @@ class Intervaler:
             Contains metrics on interval_time, total_time (total run time) and
             any responses from the LabJack.
         """
-        curr_iter = 0
-        all_interval_t = []
-        interval_responses = []
-        ljm.startInterval(self._interval_handle, self.interval_time)
-        t_before_loop = ljm.getHostTick()
+        with self:
+            curr_iter = 0
+            all_interval_t = []
+            interval_responses = []
+            ljm.startInterval(self._interval_handle, self.interval_time)
+            t_before_loop = ljm.getHostTick()
 
-        while curr_iter < self.num_iter:
-            t_start_interval = ljm.getHostTick()
-            # run the operation inside a loop, allowing operation to
-            # change iteration number
-            curr_iter, resp = operations_inside(
-                curr_iter, **operation_kwargs
-                )
-            skipped = ljm.waitForNextInterval(self._interval_handle)
-            t_end_interval = ljm.getHostTick()
-
-            interval_responses = self._add_responses(
-                interval_responses, resp
-                )
-            all_interval_t.append(t_end_interval - t_start_interval)
-
-            if operations_outside != None:
-                # operations outside of the timed loop, called
-                # *immediately* after the timed interval has ended
-                dummy_iter, resp = operations_outside(
+            while curr_iter < self.num_iter:
+                t_start_interval = ljm.getHostTick()
+                # run the operation inside a loop, allowing operation to
+                # change iteration number
+                curr_iter, resp = operations_inside(
                     curr_iter, **operation_kwargs
                     )
+                skipped = ljm.waitForNextInterval(self._interval_handle)
+                t_end_interval = ljm.getHostTick()
 
                 interval_responses = self._add_responses(
                     interval_responses, resp
                     )
+                all_interval_t.append(t_end_interval - t_start_interval)
 
-            if skipped > 0:
-                print("Iteration {0} skipped intervals: {1}".format(
-                    curr_iter, skipped
-                    ))
+                if operations_outside != None:
+                    # operations outside of the timed loop, called
+                    # *immediately* after the timed interval has ended
+                    dummy_iter, resp = operations_outside(
+                        curr_iter, **operation_kwargs
+                        )
 
-        total_time = ljm.getHostTick() - t_before_loop
-        ljm.cleanInterval(self._interval_handle)
+                    interval_responses = self._add_responses(
+                        interval_responses, resp
+                        )
 
-        response = {
-            "interval_time": np.mean(all_interval_t),
-            "total_time": total_time,
-            "response": interval_responses
-        }
+                if skipped > 0:
+                    print("Iteration {0} skipped intervals: {1}".format(
+                        curr_iter, skipped
+                        ))
 
-        return response
+            total_time = ljm.getHostTick() - t_before_loop
+            # Context manager handles cleaning the interval already
+            # ljm.cleanInterval(self._interval_handle)
+
+            response = {
+                "interval_time": np.mean(all_interval_t),
+                "total_time": total_time,
+                "response": interval_responses
+            }
+
+            return response
 
 class Streamer:
     """Streaming data from buffer to output mode via the LabJack.
@@ -623,7 +596,11 @@ class Streamer:
         return self
 
     def __exit__(self, exc_type, exc_value, exc_tb):
-        self.disable_stream_out()
+        for stream_num in self.stream_nums:
+            ljm.eWriteName(
+                self._handle, "STREAM_OUT{0}_ENABLE".format(stream_num), 1
+                )
+
         self.stop_stream()
 
         if exc_type is KeyboardInterrupt:
@@ -674,6 +651,8 @@ class Streamer:
 
         TODO: non-default configurations
         """
+        self.stop_stream()
+
         ljm.eWriteName(self._handle, "STREAM_SETTLING_US", 0)
         ljm.eWriteName(self._handle, "STREAM_RESOLUTION_INDEX", 0)
         ljm.eWriteName(self._handle, "STREAM_CLOCK_SOURCE", 0)
@@ -743,8 +722,8 @@ class Streamer:
         if isinstance(datas, tuple):
             for d in datas:
                 if (
-                    not isinstance(d, tuple) or
-                    not isinstance(d, list) or
+                    not isinstance(d, tuple) and
+                    not isinstance(d, list) and
                     not isinstance(d, np.ndarray)):
                     raise TypeError(
                         "Input data must be a tuple containing lists."
@@ -799,15 +778,25 @@ class Streamer:
         except:
             raise ValueError("Load some data in!")
 
-        # stream actually starts here by setting STREAM_ENABLE=1 but doesn't
-        # block execution
-        actual_scan_rate = ljm.eStreamStart(
-            self._handle, scans_per_read,
-            len(self.scan_list), self.scan_list, scan_rate
-            )
-        # the sleep here is what blocks execution
-        # sleeping for 2% more time than stream out time just incase
-        actual_time = 1.02*(max(self._data_lengths) / actual_scan_rate)
-        time.sleep(actual_time)
 
-        return actual_time
+        with self:
+            # stream actually starts here by setting STREAM_ENABLE=1 but doesn't
+            # block execution
+            actual_scan_rate = ljm.eStreamStart(
+                self._handle, scans_per_read,
+                len(self.scan_list), self.scan_list, scan_rate
+                )
+            # the sleep here is what blocks execution
+            # sleeping for 2% more time than stream out time just incase
+            actual_time = 1.02*(max(self._data_lengths) / actual_scan_rate)
+            time.sleep(actual_time)
+
+            return actual_time
+
+    def stop_stream(self):
+        """Stop the stream."""
+        try:
+            ljm.eStreamStop(self._handle)
+        except ljm.LJMError as e:
+            if e.errorString != "STREAM_NOT_RUNNING":
+                pass
