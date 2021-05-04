@@ -108,7 +108,7 @@ class LabJackDaq:
         if exp_name == "reflow":
             lj = cls(device_type="T4")
             lj.add_asynch(exp_name)
-        elif exp_name == "machine":
+        elif exp_name == "machining":
             lj = cls(device_type="T7")
             lj.add_asynch(exp_name)
             lj.add_update(
@@ -275,7 +275,7 @@ class AsynchUpdater:
     Raises
     ------
     ValueError
-        Must be either "microdisk_reflow" or "microrod_machine", to set which
+        Must be either "reflow" or "machining", to set which
         registers are used for asynchronous communication.
 
     Notes
@@ -320,7 +320,7 @@ class AsynchUpdater:
         Raises
         ------
         ValueError
-            Must be either "reflow" or "machine", to set which registers are
+            Must be either "reflow" or "machining", to set which registers are
             used for Asynch communication.
         """
         au = cls(handle)
